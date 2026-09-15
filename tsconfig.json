@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    // 与 OpenCode TUI 宿主一致：ESM + 最新语法
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    // 关键：插件 UI 是 Solid + OpenTUI，不是 React/Ink。
+    // 源码文件头仍建议保留 `/** @jsxImportSource @opentui/solid */` 显式声明。
+    "jsx": "preserve",
+    "jsxImportSource": "@opentui/solid",
+    "lib": ["ESNext", "DOM"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  // 阶段 3 会创建 src/ 下的文件，届时 `bun run typecheck` 即 `tsc --noEmit` 开始生效
+  "include": ["src"]
+}
