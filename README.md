@@ -8,7 +8,7 @@ OpenCode TUI 对话历史节点查看器：在侧边栏以可滚动列表展示�
 
 - 侧边栏时间线：`[角色图标] 摘要（30字符截断） HH:MM`，tool 调用展开为子节点
 - `Alt+U` 切换面板，`↑/↓` 移动选中，`Enter` 跳转（见已知问题），`Esc` 关闭
-- 新消息/part 事件驱动自动刷新；选中失效时跟随到末尾
+- 数据源走宿主响应式 store（对齐官方 sidebar TODO）：进会话时宿主自动回填历史，SSE 到后约一帧延迟自动刷新；选中失效时跟随到末尾
 - 上次选中经 `api.kv` 持久化，重启可恢复
 
 | 按键 | 动作 |
@@ -52,7 +52,7 @@ pwd
   // JSONC：允许注释
   "$schema": "https://opencode.ai/tui.json",
   "plugin": [
-    ["/绝对路径/opencode-timeline-plugin/src/index.tsx", { "maxItems": 50 }]
+    ["/绝对路径/opencode-timeline-plugin/src/panel.tsx", { "maxItems": 50 }]
   ]
 }
 ```
@@ -65,7 +65,7 @@ cat > ~/.config/opencode/tui.json <<'EOF'
 {
   "$schema": "https://opencode.ai/tui.json",
   "plugin": [
-    ["/绝对路径/opencode-timeline-plugin/src/index.tsx", { "maxItems": 50 }]
+    ["/绝对路径/opencode-timeline-plugin/src/panel.tsx", { "maxItems": 50 }]
   ]
 }
 EOF
@@ -93,7 +93,7 @@ opencode
 ```jsonc
 {
   "plugin": [
-    ["/绝对路径/opencode-timeline-plugin/src/index.tsx", {
+    ["/绝对路径/opencode-timeline-plugin/src/panel.tsx", {
       "maxItems": 50 // 过长会话的截断窗口，默认 50
     }]
   ],
@@ -130,13 +130,13 @@ npm run typecheck
 | ---- | ---- |
 | 面板没出现 | `tui.json` 路径是否为**绝对路径**；插件 `id` 是否为 `timeline.viewer`；启动日志有无 `loading tui config` / ERROR |
 | 快捷键无效 | 终端是否吞掉了 `Alt+U`（换个终端或改绑定，见 `src/hooks/useKeybind.ts`）；输入框聚焦时导航键不劫持是预期行为 |
-| 列表不刷新 | 看是否进了会话（空会话渲染 null 是预期）；事件订阅见 `src/api/opencode.ts:subscribeTimeline` |
+| 列表不刷新 | 看是否进了会话；数据源是 `api.state` 快照 + 事件订阅/轮询混合驱动（见 `src/hooks/useMessages.ts` 三路驱动注释），宿主历史回填靠进会话时的 catch-up bump 兜住 |
 | `npm run build` 失败 | 预期行为，当前只有 `typecheck`，`build` 是占位脚本 |
 
 ## 项目结构
 
 ```
-├── package.json          # exports["./tui"] 指向 ./src/index.tsx
+├── package.json          # exports["./tui"] 指向 ./src/panel.tsx
 ├── tsconfig.json         # jsxImportSource @opentui/solid
 ├── tui.json              # 本地调试示例（非真实配置，见上）
 └── src/
@@ -156,6 +156,6 @@ npm run typecheck
 
 1. **Enter 跳转目前是 toast + kv 持久化**，宿主暂无公开“滚动到 messageID” API（`src/api/opencode.ts:jumpToMessage`）。待向 opencode 确认 session 视图滚动接口后补全。
 2. **keymap schema 按最小结构类型编写**（`src/hooks/useKeybind.ts`），`alt+u` 等键名字符串待对照本地 `@opentui/keymap` 文档确认；若冲突可改 `timeline.*` 命令名或键位。
-3. **主题色当前走宿主默认**（`src/index.tsx`），`RGBA → ColorInput` 映射待确认后接入 `selectedBackground/borderColor`。
+3. **主题色当前走宿主默认**（`src/panel.tsx`），`RGBA → ColorInput` 映射待确认后接入 `selectedBackground/borderColor`。
 4. 树状视图：`TimelineNode.parentId/children` 已预留，UI 仍为线性；对标 `opencode-tree` 的折叠/缩进尚未实现。
 5. 鼠标滚轮：TUI 无点击语义，`Timeline` 用 `scrollbox`，滚轮行为跟随宿主实现，未单独处理。

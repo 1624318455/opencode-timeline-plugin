@@ -8,11 +8,12 @@
   // 把下面 plugin 数组里的一行原样复制过去即可（注意改成绝对路径）。
   // ============================================================
   "plugin": [
-    // 方案 A（推荐调试）：相对路径文件插件。
-    // 以「声明这份 tui.json 的文件」为基准解析，./src/index.tsx 即本仓库入口。
-    // 文件模块必须 default export { id, tui }，且 id 非空（见阶段 4 的 src/index.tsx）。
-    [
-      "./src/index.tsx",
+  // 方案 A（推荐调试）：相对路径文件插件。
+  // 以「声明这份 tui.json 的文件」为基准解析，./src/panel.tsx 即本仓库入口。
+  // 文件模块必须 default export { id, tui }，且 id 非空（见 src/panel.tsx）。
+  // 注意：入口只做 slots.register，渲染逻辑在 components/TimelinePanel（入口在宿主里常驻，逻辑放入口会越改越旧）。
+  [
+    "./src/panel.tsx",
       {
         // 下面是透传给 tui(api, options) 的第二个参数 options，插件侧可读。
         // 先占位，阶段 4 的 index.tsx 会读取它们。
