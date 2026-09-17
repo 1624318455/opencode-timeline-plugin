@@ -39,14 +39,13 @@ export function TimelinePanel(props: TimelinePanelProps) {
   // 驱动——paintKey 在 useMessages 的 follow effect 里递增，而该 effect 已被日志证实每次
   // nodes 变化都跑（上一轮 R7 断掉的原因正是面板本地 effect 跟踪 sig memo 不再执行）。
   // 两分支故意结构不同（裸 text ↔ box 包 text），渲染器无法复用旧节点，只能新鲜挂载。
-  // R10 为二分诊断标记（改号以便截图验 reload），结论后删除。
+  // R11 为回归二分标记（改号以便截图验 reload），结论后删除。
+  // R10 回归：整块首帧后全冻（R9 列表还活着）。R10 只加了 border 切换 + ErrorBoundary；
+  // boundary 是 solid 核心与渲染器无关，嫌疑小故保留；border 走 reconciler 自定义路径，
+  // 嫌疑大故本轮先撤。若列表活回来即定罪 border。
   // 标题里直接带 paintKey（pN）和奇偶宽度摆动（奇数多一个 " ·"）。
   const titleFull = () =>
-    `Timeline ${count()} · Alt+U · R10${store.paintKey() % 2 === 0 ? "" : " ·"} · p${store.paintKey()}`;
-  // R10 钩子B：header 行直连 paintKey 的左边框（"选中高亮加边框变宽✓"同款写法，不经过 Show）。
-  // 若边框跟着翻而标题不动 = Show 交换链路坏、直接属性链路好；若边框也不动 = header 整块没响应。
-  const headerBorder = (): ["left"] | undefined =>
-    store.paintKey() % 2 === 0 ? undefined : ["left"];
+    `Timeline ${count()} · Alt+U · R11${store.paintKey() % 2 === 0 ? "" : " ·"} · p${store.paintKey()}`;
   // 超 maxItems 被截掉的老用户消息数（走事件驱动的 userTotal 快照，不在 render 内直读宿主 store）
   const hiddenOlder = () => Math.max(0, store.userTotal() - props.maxItems);
   // 诊断行（默认关闭，debug: true 时才渲染）：同步快照，排查“宿主没给 vs 过滤吃掉”用。
@@ -68,13 +67,7 @@ export function TimelinePanel(props: TimelinePanelProps) {
   return (
     <Show when={active()}>
       <box flexDirection="column" flexShrink={0}>
-        <box
-          flexDirection="row"
-          gap={1}
-          border={headerBorder()}
-          borderColor={theme().border}
-          onMouseDown={() => setOpen((x) => !x)}
-        >
+        <box flexDirection="row" gap={1} onMouseDown={() => setOpen((x) => !x)}>
           <text fg={theme().text}>{open() ? "▼" : "▶"}</text>
           <text fg={theme().text}>
             <b>Timeline</b>
