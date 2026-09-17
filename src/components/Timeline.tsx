@@ -66,10 +66,7 @@ export function Timeline(props: TimelineProps) {
       maxHeight={props.maxHeight ?? 10}
       scrollbarOptions={{ visible: false }}
     >
-      <Show
-        when={props.nodes.length > 0}
-        fallback={<text>{props.emptyText ?? "暂无消息"}</text>}
-      >
+      <Show when={props.nodes.length > 0}>
         <box flexDirection="column" gap={0} width="100%">
           <For each={props.nodes}>
             {(node: TimelineNode) => (
@@ -82,6 +79,9 @@ export function Timeline(props: TimelineProps) {
             )}
           </For>
         </box>
+      </Show>
+      <Show when={props.nodes.length === 0}>
+        <text>{props.emptyText ?? "暂无消息"}</text>
       </Show>
     </scrollbox>
   );
