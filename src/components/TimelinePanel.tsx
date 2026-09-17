@@ -45,10 +45,25 @@ export function TimelinePanel(props: TimelinePanelProps) {
   // ② 每次快照重读后调 api.renderer.requestRender() 显式要一帧（插件自有信号不走宿主调度）。
   // 标题仍是双独立 Show + 1 行/2 行高度交替 + pN。
   const titleFull = () =>
-    `Timeline ${count()} · Alt+U · R15${store.paintKey() % 2 === 0 ? "" : " ·"} · p${store.paintKey()}`;
+    `Timeline ${count()} · Alt+U · R16${store.paintKey() % 2 === 0 ? "" : " ·"} · p${store.paintKey()}`;
   const titleLine1 = () => `Timeline ${count()}`;
   const titleLine2 = () =>
-    `· Alt+U · R15${store.paintKey() % 2 === 0 ? "" : " ·"} · p${store.paintKey()}`;
+    `· Alt+U · R16${store.paintKey() % 2 === 0 ? "" : " ·"} · p${store.paintKey()}`;
+  // R16 探针：分支函数体每次挂载执行一次。若 paintKey 翻了但这里不打 log = Show 没换分支
+  // （跟踪断）；若打了但屏幕不动 = 分支换了没画出来（渲染断）。与 HOST-PROBE 联合定位。
+  const TitleEven = () => {
+    diagLog(`title mount EVEN count=${count()} pk=${store.paintKey()}`); // TEMP-DIAG R16
+    return <text fg={theme().textMuted}>{titleFull()}</text>;
+  };
+  const TitleOdd = () => {
+    diagLog(`title mount ODD count=${count()} pk=${store.paintKey()}`); // TEMP-DIAG R16
+    return (
+      <box flexDirection="column">
+        <text fg={theme().textMuted}>{titleLine1()}</text>
+        <text fg={theme().textMuted}>{titleLine2()}</text>
+      </box>
+    );
+  };
   // 超 maxItems 被截掉的老用户消息数（走事件驱动的 userTotal 快照，不在 render 内直读宿主 store）
   const hiddenOlder = () => Math.max(0, store.userTotal() - props.maxItems);
   // 诊断行（默认关闭，debug: true 时才渲染）：同步快照，排查“宿主没给 vs 过滤吃掉”用。
@@ -76,13 +91,10 @@ export function TimelinePanel(props: TimelinePanelProps) {
             <b>Timeline</b>
           </text>
           <Show when={store.paintKey() % 2 === 0}>
-            <text fg={theme().textMuted}>{titleFull()}</text>
+            <TitleEven />
           </Show>
           <Show when={store.paintKey() % 2 !== 0}>
-            <box flexDirection="column">
-              <text fg={theme().textMuted}>{titleLine1()}</text>
-              <text fg={theme().textMuted}>{titleLine2()}</text>
-            </box>
+            <TitleOdd />
           </Show>
         </box>
         <Show when={open()}>

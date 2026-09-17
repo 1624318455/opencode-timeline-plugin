@@ -9,7 +9,7 @@ type FsLike = {
 
 let fs: FsLike | null = null;
 let tmp = "";
-let primed = false;
+let ready: Promise<void> | null = null;
 
 // TEMP-DIAG: 日志按进程隔离（多进程同写一个文件会在 Windows 下互相顶掉单发日志行）。
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -24,18 +24,20 @@ const PID: string = (() => {
 })();
 
 async function ensure(): Promise<void> {
-  if (primed) return;
-  primed = true;
-  try {
-    // @ts-expect-error TEMP-DIAG: 宿主具备 node 内置模块,只是本仓库缺 @types/node
-    const m = await import("node:fs");
-    // @ts-expect-error TEMP-DIAG: 同上
-    const o = await import("node:os");
-    fs = m as FsLike;
-    tmp = (o as { tmpdir(): string }).tmpdir();
-  } catch {
-    fs = null;
-  }
+  if (ready) return ready;
+  ready = (async () => {
+    try {
+      // @ts-expect-error TEMP-DIAG: 宿主具备 node 内置模块,只是本仓库缺 @types/node
+      const m = await import("node:fs");
+      // @ts-expect-error TEMP-DIAG: 同上
+      const o = await import("node:os");
+      fs = m as FsLike;
+      tmp = (o as { tmpdir(): string }).tmpdir();
+    } catch {
+      fs = null;
+    }
+  })();
+  return ready;
 }
 
 /** 日志文件绝对路径(问用户要日志时把这个贴给他). */

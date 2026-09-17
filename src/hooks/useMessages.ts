@@ -77,6 +77,14 @@ export function useMessages(
     version();
     return countUserMessages(api, id());
   });
+  // R16 探针：宿主信号是否对我方 memo 可见（单副本?）——故意不读 version，
+  // 只读 api.state 快照。若它在宿主数据变化时自发重跑（无 bump），说明跨副本订阅是通的，
+  // 下轮可删掉整套 version/事件/轮询机器，改走原生纯 memo 写法（mcp.tsx 同款）。
+  const probeNodes = createMemo(() => getSessionNodes(api, id(), maxItems));
+  createEffect(() => {
+    const l = probeNodes();
+    diagLog(`[${iid}] HOST-PROBE len=${l.length} sig=${sigOf(l)}`); // TEMP-DIAG R16
+  });
   // 与 nodes 同源同拍的签名（不另读快照），标题重挂开关跟踪它
   const sig = createMemo(() => {
     const s = sigOf(nodes());
