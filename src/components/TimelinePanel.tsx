@@ -39,13 +39,17 @@ export function TimelinePanel(props: TimelinePanelProps) {
   // 驱动——paintKey 在 useMessages 的 follow effect 里递增，而该 effect 已被日志证实每次
   // nodes 变化都跑（上一轮 R7 断掉的原因正是面板本地 effect 跟踪 sig memo 不再执行）。
   // 两分支故意结构不同（裸 text ↔ box 包 text），渲染器无法复用旧节点，只能新鲜挂载。
-  // R12 为回归二分标记（改号以便截图验 reload），结论后删除。
-  // R10 起整块首帧后全冻（R9 列表还活着）。R10 加了 border + ErrorBoundary，
-  // R11 已证 border 无罪（撤了还冻）。本轮撤 ErrorBoundary：若列表活回来即定罪它
-  // （solid 核心组件，但 @opentui/solid 自定义 reconciler 对它的支持未经证实）。
-  // 标题里直接带 paintKey（pN）和奇偶宽度摆动（奇数多一个 " ·"）。
+  // R13 为标题高度触发诊断标记（改号以便截图验 reload），结论后删除。
+  // 修正后的认识：标题从所有版本起就没异步更新过（首帧永远对，之后全冻）；
+  // 而 R10+ 列表空白很可能是侧栏挤压（scrollbox 被压到 0 高）而非冻住——R9/R12 渲染代码
+  // 完全一致，R9 列表活 R12 空，差的只能是侧栏空间（本会话 23 万 token，三块原生区块在上）。
+  // 唯一证实过能刷新的就是"高度变化"（追加行/折叠），所以标题块改按 paintKey 奇偶切 1 行/2 行：
+  // 偶数单行全标题，奇数拆成两行。块高度一变，标题必重画（若还不画，则高度理论也死）。
   const titleFull = () =>
-    `Timeline ${count()} · Alt+U · R12${store.paintKey() % 2 === 0 ? "" : " ·"} · p${store.paintKey()}`;
+    `Timeline ${count()} · Alt+U · R13${store.paintKey() % 2 === 0 ? "" : " ·"} · p${store.paintKey()}`;
+  const titleLine1 = () => `Timeline ${count()}`;
+  const titleLine2 = () =>
+    `· Alt+U · R13${store.paintKey() % 2 === 0 ? "" : " ·"} · p${store.paintKey()}`;
   // 超 maxItems 被截掉的老用户消息数（走事件驱动的 userTotal 快照，不在 render 内直读宿主 store）
   const hiddenOlder = () => Math.max(0, store.userTotal() - props.maxItems);
   // 诊断行（默认关闭，debug: true 时才渲染）：同步快照，排查“宿主没给 vs 过滤吃掉”用。
@@ -75,8 +79,9 @@ export function TimelinePanel(props: TimelinePanelProps) {
           <Show
             when={store.paintKey() % 2 === 0}
             fallback={
-              <box flexDirection="row">
-                <text fg={theme().textMuted}>{titleFull()}</text>
+              <box flexDirection="column">
+                <text fg={theme().textMuted}>{titleLine1()}</text>
+                <text fg={theme().textMuted}>{titleLine2()}</text>
               </box>
             }
           >
