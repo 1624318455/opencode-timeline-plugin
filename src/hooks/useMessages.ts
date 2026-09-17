@@ -176,6 +176,8 @@ export function useMessages(
   let lastSig = "";
   // 不用 on()：同上。followSelection 内部读 selectedId/kvRestored，用 untrack 包住避免循环跟踪。
   // 顺带驱动 paintKey：签名一变就 +1（面板用 <Key> 整块重挂标题，不赌 sig memo→面板 effect 链）。
+  // R15：每次快照重读后显式请求宿主重绘——插件副本的自有信号变更不会经过宿主的渲染调度，
+  // 靠 api.renderer.requestRender() 把新值刷上屏（折叠/挂载能画，就是宿主渲染触发的；这里手动触发同款）。
   createEffect(() => {
     const list = nodes();
     lastSig = sigOf(list);
@@ -186,7 +188,14 @@ export function useMessages(
       untrack(() => setPaintKey((k) => k + 1));
     }
     diagLog(`[${iid}] follow len=${list.length} sel=${selectedId() ?? "-"}`); // TEMP-DIAG
-    untrack(() => followSelection(list));
+    untrack(() => {
+      followSelection(list);
+      try {
+        api.renderer.requestRender();
+      } catch {
+        /* 渲染器不可用时忽略，下轮还会再试 */
+      }
+    });
   });
   const pollTimer = setInterval(() => {
     try {

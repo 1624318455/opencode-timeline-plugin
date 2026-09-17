@@ -39,16 +39,16 @@ export function TimelinePanel(props: TimelinePanelProps) {
   // 驱动——paintKey 在 useMessages 的 follow effect 里递增，而该 effect 已被日志证实每次
   // nodes 变化都跑（上一轮 R7 断掉的原因正是面板本地 effect 跟踪 sig memo 不再执行）。
   // 两分支故意结构不同（裸 text ↔ box 包 text），渲染器无法复用旧节点，只能新鲜挂载。
-  // R14 标记（改号以便截图验 reload），结论后删除。
-  // 机制定位（R13 图2实锤）：footer 两个独立 <Show> 的切换画出来了，
-  // 而标题/列表的 <Show when+fallback> 从没异步切换成功过——@opentui/solid 很可能
-  // 没正确处理 fallback 分支的更新。本轮把所有 fallback 拆成两个独立 Show（照抄 footer 的成功写法）。
-  // 标题仍保留 1 行/2 行高度交替；标题里直接带 paintKey（pN）。
+  // R15 标记（改号以便截图验 reload），结论后删除。
+  // 本轮两件事：① 依赖对齐宿主（@opentui/* 0.5.11 → 0.4.5，见 package.json；
+  // 宿主 1.18.31 锁的就是 0.4.5，我方子树之前是 0.5.11 的 renderable 混进 0.4.5 宿主树）；
+  // ② 每次快照重读后调 api.renderer.requestRender() 显式要一帧（插件自有信号不走宿主调度）。
+  // 标题仍是双独立 Show + 1 行/2 行高度交替 + pN。
   const titleFull = () =>
-    `Timeline ${count()} · Alt+U · R14${store.paintKey() % 2 === 0 ? "" : " ·"} · p${store.paintKey()}`;
+    `Timeline ${count()} · Alt+U · R15${store.paintKey() % 2 === 0 ? "" : " ·"} · p${store.paintKey()}`;
   const titleLine1 = () => `Timeline ${count()}`;
   const titleLine2 = () =>
-    `· Alt+U · R14${store.paintKey() % 2 === 0 ? "" : " ·"} · p${store.paintKey()}`;
+    `· Alt+U · R15${store.paintKey() % 2 === 0 ? "" : " ·"} · p${store.paintKey()}`;
   // 超 maxItems 被截掉的老用户消息数（走事件驱动的 userTotal 快照，不在 render 内直读宿主 store）
   const hiddenOlder = () => Math.max(0, store.userTotal() - props.maxItems);
   // 诊断行（默认关闭，debug: true 时才渲染）：同步快照，排查“宿主没给 vs 过滤吃掉”用。
