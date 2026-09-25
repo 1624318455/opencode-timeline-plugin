@@ -16,7 +16,8 @@ OpenCode TUI 对话历史导航：在侧边栏以时间线列出当前会话的�
 | ---- | ---- |
 | 点击行 | 选中 + 跳转到该消息 |
 | `⤓ 回到底部` | 主会话视图滚到最新处 |
-| `Alt+U` | 显示 / 隐藏面板 |
+| `Alt+U`（Windows/Linux）/ `Ctrl+T`（macOS） | 显示 / 隐藏面板 |
+| `←` / `→` | 收起 / 展开列表（等价于点击标题栏） |
 
 ## 安装
 
@@ -64,15 +65,21 @@ npm install
 ## 使用
 
 1. `opencode` 启动 TUI 并进入一个会话，侧边栏出现 `Timeline` 面板。
-2. 鼠标**点击某行**跳转到主视图对应消息；点 **`⤓ 回到底部`** 回到最新处；`Alt+U` 显示/隐藏。
+2. 鼠标**点击某行**跳转到主视图对应消息；点 **`⤓ 回到底部`** 回到最新处；`Alt+U`（macOS 用 `Ctrl+T`）显示/隐藏；`←`/`→` 收起/展开列表。
 3. 发一条新消息，列表自动置顶（最新在最上）。
+
+## macOS 说明
+
+- **`Alt+U` 默认按不出来**：macOS 终端下 `Option+U` 输出 `¨` 而非 `ESC u`（除非终端开了 Option as Meta），所以 Mac 请用 **`Ctrl+T`** 开关面板（Windows/Linux 继续用 `Alt+U`，两者同时注册）。
+- **点不了标题/行**：macOS 自带 Terminal.app 不支持鼠标上报；iTerm2 需在设置里开启鼠标报告（Preferences → Profiles → Terminal → Enable mouse reporting）；VSCode 集成终端一般可用。鼠标不可用时，所有操作都有键盘等价：`←`/`→` 展开收起、`↑`/`↓` 移动、`Enter` 跳转、`Esc` 关闭——先让输入框失焦（按 `Esc`）再按这些键。
+- **列表不实时刷新**：先把 `tui.json` 里该插件的 options 加上 `"debug": true` 重启，看诊断行 `total/user/kept` 是否在涨：`total` 涨而 `kept` 为 0 说明宿主给了数据但被过滤（提 issue 请贴这行）；两者都不涨多为旧版本缓存，执行一次 `opencode plugin remove @memef1f1y/opencode-timeline-plugin && opencode plugin @memef1f1y/opencode-timeline-plugin@latest` 清掉 `~/.cache/opencode/packages` 里的旧快照。
 
 ## 环境要求
 
 - `opencode >= 1.0`（已验证 `1.18.30` ~ `1.18.32`）
 - Node 18+，npm 9+（或 bun 1.0+）
 - macOS / Linux / WSL 均可；Windows 原生终端注意 `Alt+U` 可能被终端占用
-- 鼠标点击需要终端开启鼠标支持（能点侧边栏标题折叠即正常）
+- 鼠标点击需要终端开启鼠标支持（能点侧边栏标题折叠即正常）；macOS 无鼠标时用 `←`/`→`/`Ctrl+T` 全键盘操作（见上）
 
 ## 开发
 
@@ -88,7 +95,7 @@ npm run typecheck  # 期望：无输出即通过
 | 现象 | 检查 |
 | ---- | ---- |
 | 面板没出现 | 包是否装上（`opencode plugin` 列表里有没有）；文件写法下路径是否为**绝对路径**；启动日志有无 `loading tui config` / ERROR |
-| 点击没反应 | 终端鼠标是否可用；是否进了会话（home 页侧边栏没有 session 上下文） |
+| 点击没反应 | 终端鼠标是否可用（macOS 见上）；是否进了会话（home 页侧边栏没有 session 上下文）；无鼠标时用 `↑/↓`+`Enter` |
 | 跳转提示无滚动 API | 会话太老的消息可能不在本地渲染树里（TUI 只加载最近约 20 条分页），先 `⤓ 回到底部` 再试 |
 | `npm run build` 失败 | 预期行为，当前只有 `typecheck`，`build` 是占位脚本 |
 
@@ -107,7 +114,8 @@ npm run typecheck  # 期望：无输出即通过
     │   └── NodeItem.tsx      # 单节点行渲染 + 点击跳转
     ├── hooks/
     │   ├── useMessages.ts    # 快照/订阅/轮询/选中/跳转记账
-    │   └── useKeybind.ts     # Alt+U 图层注册与注销
+    │   ├── useKeybind.ts     # Alt+U/Ctrl+T + ←/→ 图层注册与注销
+    │   └── useMouseTap.ts    # down/up 双通道点按（macOS release-only 终端兜底）
     └── api/
         └── opencode.ts       # state/event/kv/toast/跳转封装
 ```

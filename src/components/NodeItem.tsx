@@ -1,6 +1,7 @@
 /** @jsxImportSource @opentui/solid */
 import { TextAttributes } from "@opentui/core";
 import { formatTime, roleIcon, truncateSummary, type TimelineNode } from "../types";
+import { createTapHandler } from "../hooks/useMouseTap";
 
 export interface NodeItemProps {
   readonly node: TimelineNode;
@@ -14,6 +15,8 @@ export interface NodeItemProps {
 
 /** 单个消息节点：`[角色图标] 消息摘要（30字） HH:MM`，选中时加粗 + 左边框 + ▸ 标记；点击直接跳转 */
 export function NodeItem(props: NodeItemProps) {
+  // macOS 适配：部分终端只送达 release 不送达 press，双通道 tap 兜底（Windows 下 up 被去重，等价于纯 down）
+  const tap = createTapHandler(() => props.onSelect?.(props.node.id));
   return (
     <box
       id={props.node.id}
@@ -22,7 +25,8 @@ export function NodeItem(props: NodeItemProps) {
       backgroundColor={props.selected ? props.selectedBackground : undefined}
       border={props.selected ? ["left"] : undefined}
       borderColor={props.selected ? props.borderColor : undefined}
-      onMouseDown={() => props.onSelect?.(props.node.id)}
+      onMouseDown={tap.onMouseDown}
+      onMouseUp={tap.onMouseUp}
     >
       <text
         wrapMode="none"

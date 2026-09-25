@@ -228,6 +228,14 @@ export function useMessages(
       const sig = sigOf(next);
       if (sig !== lastSig) {
         bump();
+        // macOS 加固：bump→memo→follow effect→requestRender 整条链任何一环时序没赶上，
+        // 宿主帧更保守的平台就会停在旧快照。这里直接再要一帧（Windows 下只是多一次
+        // 无害的重绘请求，行为不变）；follow effect 内仍会按签名再要一次，双保险。
+        try {
+          api.renderer.requestRender();
+        } catch {
+          /* 渲染器不可用时忽略，下轮还会再试 */
+        }
       }
     } catch {
       /* 快照读失败就等下一轮 */

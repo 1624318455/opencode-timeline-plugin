@@ -8,6 +8,9 @@ export interface TimelineKeyHandlers {
   readonly onDown: () => void;
   readonly onConfirm: () => void;
   readonly onClose: () => void;
+  /** 展开/收起列表体（等价于点击标题栏；macOS 无鼠标终端的唯一展开收起路径） */
+  readonly onExpand: () => void;
+  readonly onCollapse: () => void;
 }
 
 // keymap 包类型随宿主版本浮动，此处用最小结构类型避免硬依赖具体版本。
@@ -21,11 +24,15 @@ type KeymapLike = {
 };
 
 /**
- * 键盘绑定 Hook（阶段 4）。
- * - Alt+U 切换面板；↑/↓ 移动、Enter 确认、Esc 关闭（均为全局图层裸键）。
+ * 键盘绑定 Hook（阶段 4 + macOS 适配）。
+ * - Alt+U / Ctrl+T 切换面板；↑/↓ 移动、Enter 确认、Esc 关闭、←/→ 收起/展开（均为全局图层裸键）。
+ * - macOS 说明：系统默认 Option+U 输出 `¨` 而非 ESC u（除非终端开了 Option as Meta），
+ *   所以 Alt+U 在 Mac 默认键位下是死键，Ctrl+T（t = timeline）是 Mac 主用开关；
+ *   Windows 保持 Alt+U 不变。Ctrl+T 选它是因为 readline 的 transpose 语义只在
+ *   输入框聚焦时有意义，而聚焦时 prompt 层优先、本层收不到，不会双重语义。
  * - 注意：输入框聚焦时 prompt 的聚焦层优先，裸键到不了我们这里；调用方须在
  *   isActive 里排除编辑态（见 TimelinePanel.isEditing），否则会劫持输入历史/提交。
- *   主交互是鼠标点击（NodeItem onMouseDown → selectAndJump），键盘只是备用。
+ *   主交互是鼠标点击（NodeItem tap → selectAndJump），键盘是备用（无鼠标终端的唯一路径）。
  * - 基于宿主 keymap 图层，dispose 时自动注销，避免污染全局快捷键。
  */
 export function useKeybind(api: TuiPluginApi, handlers: TimelineKeyHandlers): () => void {
@@ -42,13 +49,18 @@ export function useKeybind(api: TuiPluginApi, handlers: TimelineKeyHandlers): ()
       { name: "timeline.down", title: "Timeline: move down", onSelect: () => handlers.isActive() && handlers.onDown() },
       { name: "timeline.confirm", title: "Timeline: jump to message", onSelect: () => handlers.isActive() && handlers.onConfirm() },
       { name: "timeline.close", title: "Timeline: close panel", onSelect: () => handlers.isActive() && handlers.onClose() },
+      { name: "timeline.expand", title: "Timeline: expand list", onSelect: () => handlers.isActive() && handlers.onExpand() },
+      { name: "timeline.collapse", title: "Timeline: collapse list", onSelect: () => handlers.isActive() && handlers.onCollapse() },
     ],
     bindings: [
-      { command: "timeline.toggle", keys: ["alt+u"] },
+      // Windows 主用 Alt+U；macOS 默认键位下 Option+U 是死键，用 Ctrl+T 代替
+      { command: "timeline.toggle", keys: ["alt+u", "ctrl+t"] },
       { command: "timeline.up", keys: ["up"] },
       { command: "timeline.down", keys: ["down"] },
       { command: "timeline.confirm", keys: ["enter"] },
       { command: "timeline.close", keys: ["escape"] },
+      { command: "timeline.expand", keys: ["right"] },
+      { command: "timeline.collapse", keys: ["left"] },
     ],
   });
 

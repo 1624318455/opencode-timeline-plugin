@@ -4,6 +4,7 @@ import type { TuiPluginApi } from "@opencode-ai/plugin/tui";
 import { Timeline } from "./Timeline";
 import { useMessages } from "../hooks/useMessages";
 import { useKeybind } from "../hooks/useKeybind";
+import { createTapHandler } from "../hooks/useMouseTap";
 import { countUserMessages, getSessionNodes, getTimelineDebugLine } from "../api/opencode";
 
 export interface TimelinePanelProps {
@@ -26,6 +27,8 @@ export function TimelinePanel(props: TimelinePanelProps) {
   // sessionID 传 accessor：sidebar 切会话时组件不重挂，hook 内 effect 才能跟随切会话重拉历史
   const store = useMessages(props.api, () => props.sessionID, { maxItems: props.maxItems });
   const [open, setOpen] = createSignal(true);
+  // 标题栏点按：macOS 部分终端只送达 release，双通道 tap 兜底（Windows 下等价于纯 down）
+  const headerTap = createTapHandler(() => setOpen((x) => !x));
   // —— 显示层唯一真相源：宿主跟踪读 ——
   // api.state 背后是宿主的响应式 store。本组件由宿主 Solid 运行时渲染，
   // render 期间直读 api.state 会在宿主侧建立订阅：同步数据一变宿主自动重画
@@ -79,6 +82,8 @@ export function TimelinePanel(props: TimelinePanelProps) {
       return 0;
     }
   };
+  // “回到底部”点按：同样走双通道 tap（liveNodes 在此之后已定义，调用时才求值）
+  const bottomTap = createTapHandler(() => store.backToBottom(liveNodes().map((n) => n.id)));
   // 诊断行（默认关闭，debug: true 时才渲染）：同步快照，排查“宿主没给 vs 过滤吃掉”用。
   // 全部防御式读取，永不抛错。
   const debugLine = createMemo(() => getTimelineDebugLine(props.api, props.sessionID));
@@ -102,13 +107,16 @@ export function TimelinePanel(props: TimelinePanelProps) {
     onClose: () => {
       if (store.visible()) store.toggle();
     },
+    // macOS 无鼠标终端的展开/收起唯一路径（等价于点击标题栏）；Windows 下是纯加法
+    onExpand: () => setOpen(true),
+    onCollapse: () => setOpen(false),
   });
   onCleanup(disposeKeys);
 
   return (
     <Show when={active()}>
       <box flexDirection="column" flexShrink={0}>
-        <box flexDirection="row" gap={1} onMouseDown={() => setOpen((x) => !x)}>
+        <box flexDirection="row" gap={1} onMouseDown={headerTap.onMouseDown} onMouseUp={headerTap.onMouseUp}>
           <text fg={theme().text}>{open() ? "▼" : "▶"}</text>
           <text fg={theme().text}>
             <b>Timeline</b>
@@ -135,12 +143,15 @@ export function TimelinePanel(props: TimelinePanelProps) {
             <text fg={theme().textMuted}>仅显示最近 {props.maxItems} 条 · {hiddenOlder()} 条旧消息已收起</text>
           </Show>
           <Show when={hasNodes()}>
-            <box flexDirection="row" onMouseDown={() => store.backToBottom(liveNodes().map((n) => n.id))}>
+            <box flexDirection="row" onMouseDown={bottomTap.onMouseDown} onMouseUp={bottomTap.onMouseUp}>
               <text fg={theme().textMuted}>⤓ 回到底部</text>
             </box>
           </Show>
           <Show when={count() > maxHeight}>
-            <text fg={theme().textMuted}>列表内滚动</text>
+            <text fg={theme().textMuted}>↑/↓ 移动 · Enter 跳转 · ←/→ 展开收起 · Ctrl/Alt+U 开关</text>
+          </Show>
+          <Show when={count() <= maxHeight}>
+            <text fg={theme().textMuted}>↑/↓ 移动 · Enter 跳转 · ←/→ 展开收起</text>
           </Show>
         </Show>
       </box>
