@@ -22,7 +22,10 @@ type KeymapLike = {
 
 /**
  * 键盘绑定 Hook（阶段 4）。
- * - Alt+U 切换面板；面板内 ↑/↓ 移动、Enter 确认、Esc 关闭。
+ * - Alt+U 切换面板；↑/↓ 移动、Enter 确认、Esc 关闭（均为全局图层裸键）。
+ * - 注意：输入框聚焦时 prompt 的聚焦层优先，裸键到不了我们这里；调用方须在
+ *   isActive 里排除编辑态（见 TimelinePanel.isEditing），否则会劫持输入历史/提交。
+ *   主交互是鼠标点击（NodeItem onMouseDown → selectAndJump），键盘只是备用。
  * - 基于宿主 keymap 图层，dispose 时自动注销，避免污染全局快捷键。
  */
 export function useKeybind(api: TuiPluginApi, handlers: TimelineKeyHandlers): () => void {

@@ -1,8 +1,7 @@
 import { createEffect, createMemo, createSignal, onCleanup, untrack } from "solid-js";
 import type { TuiPluginApi } from "@opencode-ai/plugin/tui";
 import type { TimelineNode } from "../types";
-import { countUserMessages, getSessionNodes, jumpToMessage, subscribeTimeline } from "../api/opencode";
-import { diagLog, diagReset } from "../api/diag"; // TEMP-DIAG: 结论出来后删除
+import { countUserMessages, getSessionNodes, jumpToMessage, scrollSessionToBottom, subscribeTimeline } from "../api/opencode";
 
 export interface UseMessagesOptions {
   readonly maxItems?: number;
@@ -22,6 +21,10 @@ export interface UseMessagesResult {
   readonly toggle: () => void;
   readonly moveSelection: (delta: number) => void;
   readonly confirmSelection: () => void;
+  /** 鼠标点击：选中该行 + 直接跳转主视图（与 Enter 同一跳转） */
+  readonly selectAndJump: (id: string) => void;
+  /** 回到底部：主会话视图滚到最新处（可传实时 id 列表，避免 memo 滞后） */
+  readonly backToBottom: (ids?: readonly string[]) => void;
   readonly refresh: () => void;
 }
 
@@ -47,8 +50,6 @@ function sigOf(list: readonly TimelineNode[]): string {
  * 2) 切会话/挂载后的延迟 catch-up bump（兜住历史回填直接写 store、不经过事件的窗口）；
  * 3) 2s 轮询签名比对（兜住冷启动回填晚到、外部写入、漏事件；命中签名则不 bump）。
  */
-let mountCounter = 0; // TEMP-DIAG: 实例计数,与随机前缀一起区分“双实例”与“会话抖动”
-
 export function useMessages(
   api: TuiPluginApi,
   sessionID: SessionIDSource,
@@ -56,41 +57,46 @@ export function useMessages(
 ): UseMessagesResult {
   const maxItems = options.maxItems ?? 50;
   const id = () => readSessionID(sessionID);
-  const iid = `${Math.random().toString(36).slice(2, 6)}:${++mountCounter}`; // TEMP-DIAG
-
-  diagReset(`mount iid=${iid} sid=${id()}`); // TEMP-DIAG
-  onCleanup(() => diagLog(`[${iid}] unmount sid=${id()}`)); // TEMP-DIAG: 进程退出/热重载泄漏都能看见
 
   // 显式刷新令牌：事件/切会话/轮询都经由此驱动快照重读
   const [version, setVersion] = createSignal(0);
   const bump = () => setVersion((v) => v + 1);
 
-  // 快照派生：只依赖 version + 会话 id，不赌宿主响应式语义
+  // 路由失活判断：宿主切到别的会话后，本实例（宿主不注销旧面板，见日志 0 unmount）
+  // 的轮询只做廉价跳过，不读快照、不打日志，避免僵尸实例刷屏烧 CPU。
+  // 注意：只是跳过工作不清定时器——用户切回本会话时轮询要能恢复。
+  const isRouteStale = () => {
+    try {
+      const cur = api.route?.current;
+      if (!cur || cur.name !== "session") return false;
+      const routeSid = (cur.params as { sessionID?: unknown } | undefined)?.sessionID;
+      return typeof routeSid === "string" && routeSid !== id();
+    } catch {
+      return false;
+    }
+  };
+
+  // 快照派生：只依赖 version + 会话 id，不赌宿主响应式语义。
+  // memo 体永不抛错（抛错会毒化下游 effect，见 2026-09-24 日志 follow 停转）。
   const nodes = createMemo(() => {
-    version();
-    const sid = id();
-    const list = getSessionNodes(api, sid, maxItems);
-    diagLog(`[${iid}] nodes recompute sid=${sid.slice(0, 13)} len=${list.length} sig=${sigOf(list)}`); // TEMP-DIAG
-    return list;
+    try {
+      version();
+      const sid = id();
+      return getSessionNodes(api, sid, maxItems);
+    } catch {
+      return [] as readonly TimelineNode[];
+    }
   });
   const userTotal = createMemo(() => {
-    version();
-    return countUserMessages(api, id());
+    try {
+      version();
+      return countUserMessages(api, id());
+    } catch {
+      return 0;
+    }
   });
-  // R16 探针：宿主信号是否对我方 memo 可见（单副本?）——故意不读 version，
-  // 只读 api.state 快照。若它在宿主数据变化时自发重跑（无 bump），说明跨副本订阅是通的，
-  // 下轮可删掉整套 version/事件/轮询机器，改走原生纯 memo 写法（mcp.tsx 同款）。
-  const probeNodes = createMemo(() => getSessionNodes(api, id(), maxItems));
-  createEffect(() => {
-    const l = probeNodes();
-    diagLog(`[${iid}] HOST-PROBE len=${l.length} sig=${sigOf(l)}`); // TEMP-DIAG R16
-  });
-  // 与 nodes 同源同拍的签名（不另读快照），标题重挂开关跟踪它
-  const sig = createMemo(() => {
-    const s = sigOf(nodes());
-    diagLog(`[${iid}] sig recompute -> ${s}`); // TEMP-DIAG: 验证 memo→effect 链是否断掉
-    return s;
-  });
+  // 与 nodes 同源同拍的签名（不另读快照）
+  const sig = createMemo(() => sigOf(nodes()));
   // 标题重挂钥匙：由下面已证实可靠的 follow effect 驱动（不赌 sig memo→面板 effect 链）。
   // follow effect 每次 nodes 变化都跑（日志实锤），在这里比对签名，变了就 +1。
   const [paintKey, setPaintKey] = createSignal(0);
@@ -139,21 +145,26 @@ export function useMessages(
       setKvRestored(true);
       if (restoreKv(list)) return;
     }
-    setSelectedId(list[list.length - 1]!.id);
+    // 列表最新在最上面：默认选中顶部（最新一条）
+    setSelectedId(list[0]!.id);
   };
 
   // 事件订阅：按当前会话过滤，随会话切换重建，随面板卸载注销。
   // subscribeTimeline 内部已做 100ms trailing 合并。
   // 注意：不用 on() 包——实测 on() 包的效果在宿主里不触发，改普通 effect + 手动比对。
+  // effect 体永不抛错：Solid 里抛错的 effect 会被静默销毁（2026-09-24 日志实锤 follow 停转）。
   createEffect(() => {
-    const sid = id();
-    diagLog(`[${iid}] subscribe sid=${sid.slice(0, 13)}`); // TEMP-DIAG
-    const off = subscribeTimeline(api, sid, () => {
-      diagLog(`[${iid}] bump by event`); // TEMP-DIAG
-      bump();
-    });
-    onCleanup(off);
-    return off;
+    try {
+      const sid = id();
+      const off = subscribeTimeline(api, sid, () => {
+        if (isRouteStale()) return;
+        bump();
+      });
+      onCleanup(off);
+      return off;
+    } catch {
+      return undefined;
+    }
   });
 
   // 切会话/挂载：重置选中与 kv 恢复标记，并补延迟 bump，
@@ -163,19 +174,22 @@ export function useMessages(
   const CATCH_UP_DELAYS = [0, 500, 1500, 3000, 6000];
   let prevSid: string | null = null;
   createEffect(() => {
-    const sid = id();
-    if (prevSid === sid) return;
-    prevSid = sid;
-    setKvRestored(false);
-    setSelectedId(null);
-    diagLog(`[${iid}] switch sid=${sid}`); // TEMP-DIAG
-    const timers = CATCH_UP_DELAYS.map((ms) =>
-      setTimeout(() => {
-        diagLog(`[${iid}] bump catchup +${ms}ms`); // TEMP-DIAG
-        bump();
-      }, ms),
-    );
-    onCleanup(() => timers.forEach((t) => clearTimeout(t)));
+    try {
+      const sid = id();
+      if (prevSid === sid) return;
+      prevSid = sid;
+      setKvRestored(false);
+      setSelectedId(null);
+      const timers = CATCH_UP_DELAYS.map((ms) =>
+        setTimeout(() => {
+          if (isRouteStale()) return;
+          bump();
+        }, ms),
+      );
+      onCleanup(() => timers.forEach((t) => clearTimeout(t)));
+    } catch {
+      /* 忽略，effect 保持存活 */
+    }
   });
 
   // 兜底轮询：签名变化才 bump。覆盖冷启动回填晚到、外部写入、漏事件等一切“无事件但有数据”的时机。
@@ -184,33 +198,35 @@ export function useMessages(
   let lastSig = "";
   // 不用 on()：同上。followSelection 内部读 selectedId/kvRestored，用 untrack 包住避免循环跟踪。
   // 顺带驱动 paintKey：签名一变就 +1（面板用 <Key> 整块重挂标题，不赌 sig memo→面板 effect 链）。
-  // R15：每次快照重读后显式请求宿主重绘——插件副本的自有信号变更不会经过宿主的渲染调度，
+  // 每次快照重读后显式请求宿主重绘——插件副本的自有信号变更不会经过宿主的渲染调度，
   // 靠 api.renderer.requestRender() 把新值刷上屏（折叠/挂载能画，就是宿主渲染触发的；这里手动触发同款）。
   createEffect(() => {
-    const list = nodes();
-    lastSig = sigOf(list);
-    const s = lastSig;
-    if (prevPaintSig !== s) {
-      prevPaintSig = s;
-      diagLog(`[${iid}] paintKey bump -> ${s}`); // TEMP-DIAG
-      untrack(() => setPaintKey((k) => k + 1));
-    }
-    diagLog(`[${iid}] follow len=${list.length} sel=${selectedId() ?? "-"}`); // TEMP-DIAG
-    untrack(() => {
-      followSelection(list);
-      try {
-        api.renderer.requestRender();
-      } catch {
-        /* 渲染器不可用时忽略，下轮还会再试 */
+    try {
+      const list = nodes();
+      lastSig = sigOf(list);
+      const s = lastSig;
+      if (prevPaintSig !== s) {
+        prevPaintSig = s;
+        untrack(() => setPaintKey((k) => k + 1));
       }
-    });
+      untrack(() => {
+        followSelection(list);
+        try {
+          api.renderer.requestRender();
+        } catch {
+          /* 渲染器不可用时忽略，下轮还会再试 */
+        }
+      });
+    } catch {
+      /* 忽略，effect 保持存活 */
+    }
   });
   const pollTimer = setInterval(() => {
     try {
+      if (isRouteStale()) return;
       const next = getSessionNodes(api, id(), maxItems);
       const sig = sigOf(next);
       if (sig !== lastSig) {
-        diagLog(`[${iid}] bump poll sig ${lastSig || "-"} -> ${sig}`); // TEMP-DIAG
         bump();
       }
     } catch {
@@ -225,13 +241,31 @@ export function useMessages(
     const list = nodes();
     if (list.length === 0) return;
     const idx = list.findIndex((n) => n.id === selectedId());
-    const next = Math.min(list.length - 1, Math.max(0, (idx < 0 ? list.length - 1 : idx) + delta));
+    // 列表最新在最上面（index 0 = 最新）：无选中时落到顶部；↑(-1) 向更新方向，↓(+1) 向更老方向
+    if (idx < 0) {
+      setSelectedId(list[0]!.id);
+      return;
+    }
+    const next = Math.min(list.length - 1, Math.max(0, idx + delta));
     setSelectedId(list[next]!.id);
   };
 
   const confirmSelection = () => {
     const selected = selectedId();
     if (selected) jumpToMessage(api, id(), selected);
+  };
+
+  const selectAndJump = (messageID: string) => {
+    setSelectedId(messageID);
+    jumpToMessage(api, id(), messageID);
+  };
+
+  const backToBottom = (ids?: readonly string[]) => {
+    try {
+      scrollSessionToBottom(api, ids ?? nodes().map((n) => n.id));
+    } catch {
+      /* 忽略 */
+    }
   };
 
   // 手动刷新位：事件驱动下通常不需要，保留给外部调用方（兜底重读一次快照）
@@ -252,6 +286,8 @@ export function useMessages(
     toggle,
     moveSelection,
     confirmSelection,
+    selectAndJump,
+    backToBottom,
     refresh,
   };
 }

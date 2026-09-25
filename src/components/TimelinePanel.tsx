@@ -4,8 +4,7 @@ import type { TuiPluginApi } from "@opencode-ai/plugin/tui";
 import { Timeline } from "./Timeline";
 import { useMessages } from "../hooks/useMessages";
 import { useKeybind } from "../hooks/useKeybind";
-import { getTimelineDebugLine } from "../api/opencode";
-import { diagLog } from "../api/diag"; // TEMP-DIAG: 结论出来后删除
+import { countUserMessages, getSessionNodes, getTimelineDebugLine } from "../api/opencode";
 
 export interface TimelinePanelProps {
   readonly api: TuiPluginApi;
@@ -24,39 +23,47 @@ export interface TimelinePanelProps {
  * 渲染逻辑必须全部走依赖文件才能热更新。
  */
 export function TimelinePanel(props: TimelinePanelProps) {
-  diagLog(`panel body sid=${String(props.sessionID).slice(0, 13)}`); // TEMP-DIAG: 组件函数是否执行
   // sessionID 传 accessor：sidebar 切会话时组件不重挂，hook 内 effect 才能跟随切会话重拉历史
   const store = useMessages(props.api, () => props.sessionID, { maxItems: props.maxItems });
   const [open, setOpen] = createSignal(true);
+  // —— 显示层唯一真相源：宿主跟踪读 ——
+  // api.state 背后是宿主的响应式 store。本组件由宿主 Solid 运行时渲染，
+  // render 期间直读 api.state 会在宿主侧建立订阅：同步数据一变宿主自动重画
+  // 本子树——原生 Context/MCP/LSP 区块就是这么刷新的。
+  // 插件自有 memo/signal 的变更调度不到宿主帧（实测：数据到了也不画，
+  // 要手动点一下借宿主事件帧才刷出来），所以列表/计数/空态必须走这里直读；
+  // store 只管选中、跳转、回到底部等后台记账。
+  // 注意：必须是 render 期间调用的普通函数（不能包插件侧 createMemo——跨运行时
+  // memo 缓存会断掉宿主订阅）；单次 render 读几次快照开销可忽略（≤maxItems 条）。
+  const liveNodes = () => getSessionNodes(props.api, props.sessionID, props.maxItems);
+  const liveEmptyText = () => {
+    if (liveNodes().length > 0) return "";
+    try {
+      return props.api.state.session.get(props.sessionID) === undefined
+        ? "加载历史中…"
+        : "暂无用户消息";
+    } catch {
+      return "加载历史中…";
+    }
+  };
   // 标题栏永远渲染（空会话显示 0 + 空态文案），避免“插件缺失”和“暂无用户消息”无法区分
   const active = () => store.visible();
-  const hasNodes = () => store.nodes().length > 0;
+  const hasNodes = () => liveNodes().length > 0;
   // 边界：列表最多取 maxItems 条消息（数据源层已截尾），面板最多占 8 行、内部滚动
   const maxHeight = 8;
-  const count = () => store.nodes().length;
+  const count = () => liveNodes().length;
   // 标题靠“签名变化 → 整块卸了重挂”更新：等尺寸原地文本替换在本环境疑似不重绘，
   // 而卸载/挂载（折叠再展开同款链路）已被证实能画出最新值。开关由 store.paintKey()
-  // 驱动——paintKey 在 useMessages 的 follow effect 里递增，而该 effect 已被日志证实每次
-  // nodes 变化都跑（上一轮 R7 断掉的原因正是面板本地 effect 跟踪 sig memo 不再执行）。
+  // 驱动——paintKey 在 useMessages 的 follow effect 里随签名递增。
   // 两分支故意结构不同（裸 text ↔ box 包 text），渲染器无法复用旧节点，只能新鲜挂载。
-  // R15 标记（改号以便截图验 reload），结论后删除。
-  // 本轮两件事：① 依赖对齐宿主（@opentui/* 0.5.11 → 0.4.5，见 package.json；
-  // 宿主 1.18.31 锁的就是 0.4.5，我方子树之前是 0.5.11 的 renderable 混进 0.4.5 宿主树）；
-  // ② 每次快照重读后调 api.renderer.requestRender() 显式要一帧（插件自有信号不走宿主调度）。
-  // 标题仍是双独立 Show + 1 行/2 行高度交替 + pN。
   const titleFull = () =>
-    `Timeline ${count()} · Alt+U · R16${store.paintKey() % 2 === 0 ? "" : " ·"} · p${store.paintKey()}`;
+    `Timeline ${count()} · Alt+U${store.paintKey() % 2 === 0 ? "" : " ·"}`;
   const titleLine1 = () => `Timeline ${count()}`;
-  const titleLine2 = () =>
-    `· Alt+U · R16${store.paintKey() % 2 === 0 ? "" : " ·"} · p${store.paintKey()}`;
-  // R16 探针：分支函数体每次挂载执行一次。若 paintKey 翻了但这里不打 log = Show 没换分支
-  // （跟踪断）；若打了但屏幕不动 = 分支换了没画出来（渲染断）。与 HOST-PROBE 联合定位。
+  const titleLine2 = () => `· Alt+U${store.paintKey() % 2 === 0 ? "" : " ·"}`;
   const TitleEven = () => {
-    diagLog(`title mount EVEN count=${count()} pk=${store.paintKey()}`); // TEMP-DIAG R16
     return <text fg={theme().textMuted}>{titleFull()}</text>;
   };
   const TitleOdd = () => {
-    diagLog(`title mount ODD count=${count()} pk=${store.paintKey()}`); // TEMP-DIAG R16
     return (
       <box flexDirection="column">
         <text fg={theme().textMuted}>{titleLine1()}</text>
@@ -64,14 +71,30 @@ export function TimelinePanel(props: TimelinePanelProps) {
       </box>
     );
   };
-  // 超 maxItems 被截掉的老用户消息数（走事件驱动的 userTotal 快照，不在 render 内直读宿主 store）
-  const hiddenOlder = () => Math.max(0, store.userTotal() - props.maxItems);
+  // 超 maxItems 被截掉的老用户消息数（render 内直读宿主 store，同样被宿主跟踪）
+  const hiddenOlder = () => {
+    try {
+      return Math.max(0, countUserMessages(props.api, props.sessionID) - props.maxItems);
+    } catch {
+      return 0;
+    }
+  };
   // 诊断行（默认关闭，debug: true 时才渲染）：同步快照，排查“宿主没给 vs 过滤吃掉”用。
   // 全部防御式读取，永不抛错。
   const debugLine = createMemo(() => getTimelineDebugLine(props.api, props.sessionID));
   const theme = () => props.api.theme.current;
+  // 输入框聚焦时裸键（↑/↓/Enter/Esc）必须让给编辑器：我们的全局图层优先级抢不过
+  // prompt 的聚焦层，硬抢会劫持输入历史/提交。所以键盘导航只在非编辑时生效，
+  // 主交互是鼠标点击（NodeItem onMouseDown → selectAndJump）。
+  const isEditing = () => {
+    try {
+      return props.api.renderer.currentFocusedEditor != null;
+    } catch {
+      return false;
+    }
+  };
   const disposeKeys = useKeybind(props.api, {
-    isActive: () => active() && open() && hasNodes(),
+    isActive: () => active() && open() && hasNodes() && !isEditing(),
     onToggle: store.toggle,
     onUp: () => store.moveSelection(-1),
     onDown: () => store.moveSelection(1),
@@ -102,20 +125,22 @@ export function TimelinePanel(props: TimelinePanelProps) {
             <text fg={theme().textMuted}>{debugLine()}</text>
           </Show>
           <Timeline
-            nodes={store.nodes()}
+            nodes={liveNodes()}
             selectedId={store.selectedId()}
             maxHeight={maxHeight}
-            emptyText={store.loading() ? "加载历史中…" : "暂无用户消息"}
-            onSelect={(messageID) => store.setSelectedId(messageID)}
+            emptyText={liveEmptyText()}
+            onSelect={(messageID) => store.selectAndJump(messageID)}
           />
           <Show when={hiddenOlder() > 0}>
             <text fg={theme().textMuted}>仅显示最近 {props.maxItems} 条 · {hiddenOlder()} 条旧消息已收起</text>
           </Show>
-          <Show when={count() > maxHeight}>
-            <text fg={theme().textMuted}>↑/↓ 移动 · Enter 跳转 · Esc 关闭 · 列表内滚动</text>
+          <Show when={hasNodes()}>
+            <box flexDirection="row" onMouseDown={() => store.backToBottom(liveNodes().map((n) => n.id))}>
+              <text fg={theme().textMuted}>⤓ 回到底部</text>
+            </box>
           </Show>
-          <Show when={count() <= maxHeight}>
-            <text fg={theme().textMuted}>↑/↓ 移动 · Enter 跳转 · Esc 关闭</text>
+          <Show when={count() > maxHeight}>
+            <text fg={theme().textMuted}>列表内滚动</text>
           </Show>
         </Show>
       </box>

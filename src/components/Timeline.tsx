@@ -14,7 +14,7 @@ export interface TimelineProps {
   readonly emptyText?: string;
   /** 列表最大高度（行数）。侧边栏是共享空间，禁止 flexGrow 抢占其他区块 */
   readonly maxHeight?: number;
-  /** 选中确认回调（阶段 4 接 Enter 跳转；TUI 无点击，鼠标支持为可选 TODO） */
+  /** 点击回调（鼠标点行 → 面板层 selectAndJump：选中 + 跳转主视图；键盘 Enter 走同一跳转） */
   readonly onSelect?: (id: string) => void;
 }
 
@@ -75,6 +75,7 @@ export function Timeline(props: TimelineProps) {
                 selected={node.id === props.selectedId}
                 selectedBackground={props.selectedBackground}
                 borderColor={props.borderColor}
+                onSelect={props.onSelect}
               />
             )}
           </For>

@@ -2,11 +2,8 @@
 import type { PluginOptions } from "@opencode-ai/plugin";
 import type { TuiPluginApi, TuiPluginMeta } from "@opencode-ai/plugin/tui";
 import { TimelinePanel } from "./components/TimelinePanel";
-import { diagLog } from "./api/diag"; // TEMP-DIAG: 结论出来后删除
 
 export const id = "timeline.viewer";
-
-let loadCount = 0; // TEMP-DIAG: entry 被调几次（重复加载/泄漏一眼看穿）
 
 interface TimelinePluginOptions {
   readonly maxItems?: number;
@@ -37,8 +34,6 @@ export async function tui(
   _meta: TuiPluginMeta,
 ): Promise<void> {
   const { maxItems = 50, debug = false } = readOptions(options);
-  loadCount++;
-  diagLog(`tui() entry #${loadCount}`); // TEMP-DIAG
 
   let disposeSlot: unknown;
   try {
