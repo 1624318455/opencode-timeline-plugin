@@ -21,7 +21,7 @@ OpenCode TUI 对话历史导航：在侧边栏以时间线列出当前会话的�
 ## 安装
 
 ```bash
-opencode plugin opencode-timeline-plugin@latest
+opencode plugin @memef1f1y/opencode-timeline-plugin@latest
 ```
 
 重启 opencode TUI 即可（不要加 `--pure`，那会禁用外部插件）。
@@ -45,7 +45,7 @@ npm install
   "$schema": "https://opencode.ai/tui.json",
   "plugin": [
     // npm 包写法（推荐）
-    ["opencode-timeline-plugin@latest", { "maxItems": 50 }],
+    ["@memef1f1y/opencode-timeline-plugin@latest", { "maxItems": 50 }],
     // 本地文件写法（开发调试，路径必须是绝对路径）
     // ["/绝对路径/opencode-timeline-plugin/src/panel.tsx", { "maxItems": 50 }]
   ],
