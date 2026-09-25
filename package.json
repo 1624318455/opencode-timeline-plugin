@@ -1,6 +1,6 @@
 {
   "name": "@memef1f1y/opencode-timeline-plugin",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "description": "Conversation history node viewer for the OpenCode TUI (sidebar timeline)",
   "keywords": [

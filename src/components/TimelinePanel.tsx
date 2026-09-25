@@ -27,8 +27,21 @@ export function TimelinePanel(props: TimelinePanelProps) {
   // sessionID 传 accessor：sidebar 切会话时组件不重挂，hook 内 effect 才能跟随切会话重拉历史
   const store = useMessages(props.api, () => props.sessionID, { maxItems: props.maxItems });
   const [open, setOpen] = createSignal(true);
+  // 宿主只在自己的事件帧里重画，插件自有 signal 翻转调度不到（Mac 上尤为明显：
+  // 点了标题栏 open 已翻转但屏不刷，看起来像没反应）。所以鼠标驱动的本地状态
+  // 变化后都手动要一帧；Windows 下只是多一次无害重绘。
+  const requestRender = () => {
+    try {
+      props.api.renderer.requestRender();
+    } catch {
+      /* 渲染器不可用时忽略 */
+    }
+  };
   // 标题栏点按：macOS 部分终端只送达 release，双通道 tap 兜底（Windows 下等价于纯 down）
-  const headerTap = createTapHandler(() => setOpen((x) => !x));
+  const headerTap = createTapHandler(() => {
+    setOpen((x) => !x);
+    requestRender();
+  });
   // —— 显示层唯一真相源：宿主跟踪读 ——
   // api.state 背后是宿主的响应式 store。本组件由宿主 Solid 运行时渲染，
   // render 期间直读 api.state 会在宿主侧建立订阅：同步数据一变宿主自动重画
@@ -42,12 +55,19 @@ export function TimelinePanel(props: TimelinePanelProps) {
   const liveEmptyText = () => {
     if (liveNodes().length > 0) return "";
     try {
-      return props.api.state.session.get(props.sessionID) === undefined
-        ? "加载历史中…"
-        : "暂无用户消息";
+      if (props.api.state.session.get(props.sessionID) === undefined) return "加载历史中…";
     } catch {
       return "加载历史中…";
     }
+    // 会话存在但 0 用户节点：把会话内原始消息总数拼出来，
+    // 截图一眼区分“宿主没同步”（共 0 条）还是“被过滤”（共 N 条但无用户消息）。
+    let total = -1;
+    try {
+      total = props.api.state.session.messages(props.sessionID)?.length ?? -1;
+    } catch {
+      total = -1;
+    }
+    return total < 0 ? "暂无用户消息" : `暂无用户消息（会话共 ${total} 条）`;
   };
   // 标题栏永远渲染（空会话显示 0 + 空态文案），避免“插件缺失”和“暂无用户消息”无法区分
   const active = () => store.visible();
@@ -101,15 +121,10 @@ export function TimelinePanel(props: TimelinePanelProps) {
   const disposeKeys = useKeybind(props.api, {
     isActive: () => active() && open() && hasNodes() && !isEditing(),
     onToggle: store.toggle,
-    onUp: () => store.moveSelection(-1),
-    onDown: () => store.moveSelection(1),
     onConfirm: store.confirmSelection,
     onClose: () => {
       if (store.visible()) store.toggle();
     },
-    // macOS 无鼠标终端的展开/收起唯一路径（等价于点击标题栏）；Windows 下是纯加法
-    onExpand: () => setOpen(true),
-    onCollapse: () => setOpen(false),
   });
   onCleanup(disposeKeys);
 
@@ -148,10 +163,10 @@ export function TimelinePanel(props: TimelinePanelProps) {
             </box>
           </Show>
           <Show when={count() > maxHeight}>
-            <text fg={theme().textMuted}>↑/↓ 移动 · Enter 跳转 · ←/→ 展开收起 · Ctrl/Alt+U 开关</text>
+            <text fg={theme().textMuted}>点击行跳转 · Ctrl+T/Alt+U 开关 · 列表内滚动</text>
           </Show>
           <Show when={count() <= maxHeight}>
-            <text fg={theme().textMuted}>↑/↓ 移动 · Enter 跳转 · ←/→ 展开收起</text>
+            <text fg={theme().textMuted}>点击行跳转 · Ctrl+T/Alt+U 开关</text>
           </Show>
         </Show>
       </box>
