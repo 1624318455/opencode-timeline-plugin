@@ -5,7 +5,7 @@ import { Timeline } from "./Timeline";
 import { useMessages } from "../hooks/useMessages";
 import { useKeybind } from "../hooks/useKeybind";
 import { createTapHandler } from "../hooks/useMouseTap";
-import { countUserMessages, getSessionNodes, getTimelineDebugLine } from "../api/opencode";
+import { getSessionNodes, getTimelineDebugLine } from "../api/opencode";
 
 export interface TimelinePanelProps {
   readonly api: TuiPluginApi;
@@ -80,9 +80,9 @@ export function TimelinePanel(props: TimelinePanelProps) {
   // 驱动——paintKey 在 useMessages 的 follow effect 里随签名递增。
   // 两分支故意结构不同（裸 text ↔ box 包 text），渲染器无法复用旧节点，只能新鲜挂载。
   const titleFull = () =>
-    `Timeline ${count()} · Alt+U${store.paintKey() % 2 === 0 ? "" : " ·"}`;
+    `Timeline ${count()}${store.paintKey() % 2 === 0 ? "" : " ·"}`;
   const titleLine1 = () => `Timeline ${count()}`;
-  const titleLine2 = () => `· Alt+U${store.paintKey() % 2 === 0 ? "" : " ·"}`;
+  const titleLine2 = () => `${store.paintKey() % 2 === 0 ? "" : "·"}`;
   const TitleEven = () => {
     return <text fg={theme().textMuted}>{titleFull()}</text>;
   };
@@ -93,14 +93,6 @@ export function TimelinePanel(props: TimelinePanelProps) {
         <text fg={theme().textMuted}>{titleLine2()}</text>
       </box>
     );
-  };
-  // 超 maxItems 被截掉的老用户消息数（render 内直读宿主 store，同样被宿主跟踪）
-  const hiddenOlder = () => {
-    try {
-      return Math.max(0, countUserMessages(props.api, props.sessionID) - props.maxItems);
-    } catch {
-      return 0;
-    }
   };
   // “回到底部”点按：同样走双通道 tap（liveNodes 在此之后已定义，调用时才求值）
   const bottomTap = createTapHandler(() => store.backToBottom(liveNodes().map((n) => n.id)));
@@ -120,7 +112,6 @@ export function TimelinePanel(props: TimelinePanelProps) {
   };
   const disposeKeys = useKeybind(props.api, {
     isActive: () => active() && open() && hasNodes() && !isEditing(),
-    onToggle: store.toggle,
     onConfirm: store.confirmSelection,
     onClose: () => {
       if (store.visible()) store.toggle();
@@ -154,19 +145,10 @@ export function TimelinePanel(props: TimelinePanelProps) {
             emptyText={liveEmptyText()}
             onSelect={(messageID) => store.selectAndJump(messageID)}
           />
-          <Show when={hiddenOlder() > 0}>
-            <text fg={theme().textMuted}>仅显示最近 {props.maxItems} 条 · {hiddenOlder()} 条旧消息已收起</text>
-          </Show>
           <Show when={hasNodes()}>
             <box flexDirection="row" onMouseDown={bottomTap.onMouseDown} onMouseUp={bottomTap.onMouseUp}>
               <text fg={theme().textMuted}>⤓ 回到底部</text>
             </box>
-          </Show>
-          <Show when={count() > maxHeight}>
-            <text fg={theme().textMuted}>点击行跳转 · Ctrl+T/Alt+U 开关 · 列表内滚动</text>
-          </Show>
-          <Show when={count() <= maxHeight}>
-            <text fg={theme().textMuted}>点击行跳转 · Ctrl+T/Alt+U 开关</text>
           </Show>
         </Show>
       </box>
